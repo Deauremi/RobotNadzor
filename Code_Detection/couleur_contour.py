@@ -1,12 +1,34 @@
 import cv2
 import numpy as np
+import socket
+
+#Programme pour envoyer l'image capturée par la vidéo
+
+def envoyerImage(Image):
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect(("192.168.135.42", 8888))
+    print("Connecté au serveur")
+
+    # on ouvre l'image en lecture par octets
+
+    fichier = open(Image, 'rb')
+    donnee = fichier.read()
+    taille = len(donnee)
+    print("fichier taille : " + str(taille))
+
+    # on envoie d'abord la taille de l'image sur les 8 premiers octets
+
+    sock.send(taille.to_bytes(8, byteorder='big'))
+    sock.sendall(donnee)
+    print("image envoyée")
+    sock.close()
 
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH,500)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT,500)
 
 couleur=False
-
 while couleur==False :
     _, frame = cap.read()
     rgb_frame=cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -49,11 +71,13 @@ while couleur==False :
     valeur_v=valeur_v/len(v_v)
 
     moyenne=[valeur_h,valeur_s,valeur_v]
-    print(moyenne)
+    #print(moyenne)
 
     if valeur_v>210 and valeur_h<90 and valeur_s<90:
         cv2.imwrite('Intrus_detecte.png',frame)
+        Image = "Intrus_detecte.png"
         couleur=True
+        envoyerImage(Image)
         cap.release()
         cv2.destroyAllWindows()
         
@@ -67,8 +91,8 @@ while couleur==False :
     if key==27:
         break
 
+
 def main():
-   
    cap = cv2.VideoCapture(0)
 
    while couleur==True:
