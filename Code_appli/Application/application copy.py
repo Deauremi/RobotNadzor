@@ -2,6 +2,9 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5 import QtCore
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import  QWidget, QLabel, QApplication
+from PyQt5.QtGui import QImage, QPixmap
 import sys
 import socket,multiproccesing
 import keyboard
@@ -19,8 +22,13 @@ nb_workers = 1
 timeout_seconds = 15
 running=True
 
-class Ui_Application(object):
+class Ui_Application(QWidget):
+    @pyqtSlot(QPixmap)
+    def setImage(self, pixmap):
+        self.video.setPixmap(pixmap)
+
     def setupUi(self, Application,queue):
+        super().__init__()
         Application.setObjectName("Application")
         Application.resize(1200, 775)
         self.ApplicationRobot = QWidget(Application)
@@ -41,12 +49,12 @@ class Ui_Application(object):
         self.groupBox_3.setAlignment(QtCore.Qt.AlignCenter)
         self.groupBox_3.setObjectName("groupBox_3")
         self.video = QLabel(self.groupBox_3)
-        self.video.move(280, 120)
+        self.video.setGeometry(QtCore.QRect(20, 20, 640, 480))
         self.video.resize(640, 480)
-        """th = Thread(self.video)
+        th = Thread(self)
         th.changePixmap.connect(self.setImage)
         th.start()
-        """
+
         self.groupBox_2 = QGroupBox(self.ApplicationRobot)
         self.groupBox_2.setGeometry(QtCore.QRect(950, 10, 231, 721))
         self.groupBox_2.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
@@ -70,9 +78,6 @@ class Ui_Application(object):
         self.retranslateUi(Application)
         QtCore.QMetaObject.connectSlotsByName(Application)
 
-    @pyqtSlot(QImage)
-    def setImage(self, image):
-        self.video.setPixmap(QPixmap.fromImage(image))
 
     def retranslateUi(self, Application):
         _translate = QtCore.QCoreApplication.translate
@@ -85,7 +90,7 @@ class Ui_Application(object):
         self.comboBox.setItemText(1, _translate("Application", "Commande2"))
 
 class Thread(QThread):
-    changePixmap = pyqtSignal(QImage)
+    changePixmap = pyqtSignal(QPixmap)
 
     def run(self):
         cap = cv2.VideoCapture(0)
@@ -95,9 +100,10 @@ class Thread(QThread):
                 rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = rgbImage.shape
                 bytesPerLine = ch * w
-                convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
-                p = convertToQtFormat.scaled(640, 480, Qt.KeepAspectRatio)
-                self.changePixmap.emit(p)
+                qImg = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
+                pixmap = QPixmap.fromImage(qImg)
+                scaled_pixmap = pixmap.scaled(640, 480, Qt.KeepAspectRatio)
+                self.changePixmap.emit(scaled_pixmap)
 
 
 class Joystick(QWidget):
@@ -188,7 +194,6 @@ def envoyer(message):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_envoie:
         try :
             s_envoie.connect((host, port))
-            print("envoie de : ",message)
             s_envoie.send(message)
         except socket.error:
             pass
@@ -207,6 +212,7 @@ def main_data(queue):
             i+=1
             if item != None and i==20:
                 i=0
+                print(item)
                 envoyer(item)
             try:
                 conn, address = s.accept()
