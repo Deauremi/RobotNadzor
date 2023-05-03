@@ -97,7 +97,7 @@ def main_server(queue):
                 # No connection received within timeout period, exit the loop
                 print("Pas de connection reçu dutant la période de timeout")
                 break
-
+                
             conn, address = s.accept()
             pool.apply_async(handle_connection, (conn,queue,))
     pool.close()
