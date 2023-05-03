@@ -2,23 +2,33 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5 import QtCore
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import  QWidget, QLabel, QApplication
+from PyQt5.QtGui import QImage, QPixmap
 import sys
-import socket,multiprocessing
+import socket,multiproccesing
 import keyboard
 import sys
 import select
 import time
 from enum import Enum
+import multiprocessing as mp
+import cv2
 
-host = "192.168.106.122"
-host2= "192.168.106.21"
-port = 8000
+host="192.168.135.122"
+host2 = '192.168.135.21'
+port = 8040
 nb_workers = 1
 timeout_seconds = 15
 running=True
 
-class Ui_Application(object):
-    def setupUi(self, Application):
+class Ui_Application(QWidget):
+    @pyqtSlot(QPixmap)
+    def setImage(self, pixmap):
+        self.video.setPixmap(pixmap)
+
+    def setupUi(self, Application,queue):
+        super().__init__()
         Application.setObjectName("Application")
         Application.resize(1200, 775)
         self.ApplicationRobot = QWidget(Application)
@@ -26,16 +36,25 @@ class Ui_Application(object):
         self.ApplicationRobot.setBaseSize(QtCore.QSize(1200, 750))
         self.ApplicationRobot.setStyleSheet("")
         self.ApplicationRobot.setObjectName("ApplicationRobot")
+       
         self.groupBox = QGroupBox(self.ApplicationRobot)
         self.groupBox.setGeometry(QtCore.QRect(10, 10, 241, 721))
         self.groupBox.setObjectName("groupBox")
         self.textBrowser = QTextBrowser(self.groupBox)
         self.textBrowser.setGeometry(QtCore.QRect(20, 20, 201, 681))
         self.textBrowser.setObjectName("textBrowser")
+        
         self.groupBox_3 = QGroupBox(self.ApplicationRobot)
         self.groupBox_3.setGeometry(QtCore.QRect(260, 10, 681, 721))
         self.groupBox_3.setAlignment(QtCore.Qt.AlignCenter)
         self.groupBox_3.setObjectName("groupBox_3")
+        self.video = QLabel(self.groupBox_3)
+        self.video.setGeometry(QtCore.QRect(20, 20, 640, 480))
+        self.video.resize(640, 480)
+        th = Thread(self)
+        th.changePixmap.connect(self.setImage)
+        th.start()
+
         self.groupBox_2 = QGroupBox(self.ApplicationRobot)
         self.groupBox_2.setGeometry(QtCore.QRect(950, 10, 231, 721))
         self.groupBox_2.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
@@ -48,8 +67,9 @@ class Ui_Application(object):
         self.comboBox.setObjectName("comboBox")
         self.comboBox.addItem("")
         self.comboBox.addItem("")
-        self.joystick = Joystick(self.groupBox_2)
+        self.joystick = Joystick(queue,self.groupBox_2)
         self.joystick.setGeometry(QtCore.QRect(20, 330, 191, 51))
+       
         Application.setCentralWidget(self.ApplicationRobot)
         self.statusbar = QStatusBar(Application)
         self.statusbar.setObjectName("statusbar")
@@ -57,6 +77,7 @@ class Ui_Application(object):
 
         self.retranslateUi(Application)
         QtCore.QMetaObject.connectSlotsByName(Application)
+
 
     def retranslateUi(self, Application):
         _translate = QtCore.QCoreApplication.translate
@@ -68,14 +89,31 @@ class Ui_Application(object):
         self.comboBox.setItemText(0, _translate("Application", "Commande1"))
         self.comboBox.setItemText(1, _translate("Application", "Commande2"))
 
+class Thread(QThread):
+    changePixmap = pyqtSignal(QPixmap)
+
+    def run(self):
+        cap = cv2.VideoCapture(0)
+        while True:
+            ret, frame = cap.read()
+            if ret:
+                rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = rgbImage.shape
+                bytesPerLine = ch * w
+                qImg = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
+                pixmap = QPixmap.fromImage(qImg)
+                scaled_pixmap = pixmap.scaled(640, 480, Qt.KeepAspectRatio)
+                self.changePixmap.emit(scaled_pixmap)
+
 
 class Joystick(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self,queue = None, parent=None):
         super(Joystick, self).__init__(parent)
         self.setMinimumSize(100, 100)
         self.movingOffset = QPointF(0,0)
         self.grabCenter = False
         self.__maxDistance = 50
+        self.q=queue
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -104,10 +142,18 @@ class Joystick(QWidget):
         normVector = QLineF(self._center(), self.movingOffset)
         currentDistance = normVector.length()
         angle = round(normVector.angle())
-
-        distance = round(min(currentDistance / self.__maxDistance, 1.0),2)
-        angleMes = "angle:"
-        message = angleMes.encode("utf-8") + angle.to_bytes(2, "big")
+        direction =""
+        if 45 <= angle < 135:
+            direction="z"
+        elif 135 <= angle < 225:
+            direction="q"
+        elif 225 <= angle < 315:
+            direction="s"
+        else :
+            direction="d"
+        #distance = round(min(currentDistance / self.__maxDistance, 1.0),2)
+        #angleMes = "angle:"
+        message = direction.encode("utf-8")
         return(message)
 
     def mousePressEvent(self, ev):
@@ -123,10 +169,7 @@ class Joystick(QWidget):
         if self.grabCenter:
             self.movingOffset = self._boundJoystick(event.pos())
             self.update()
-        try:
-            envoyer(self.joystickDirection())
-        except:
-            print("Pas de connection établi")
+        self.q.put(self.joystickDirection())
 
 def on_key_press(event):
     global running
@@ -149,23 +192,28 @@ def handle_connection(conn):
 
 def envoyer(message):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_envoie:
-        s_envoie.connect((host, port))
-        s_envoie.send(message)
+        try :
+            s_envoie.connect((host, port))
+            s_envoie.send(message)
+        except socket.error:
+            pass
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    Application = QMainWindow()
-    ui = Ui_Application()
-    ui.setupUi(Application)
-    Application.show()
-    sys.exit(app.exec_())
-    pool = multiprocessing.Pool(nb_workers)
+
+def main_data(queue):
+    pool = mp.Pool(nb_workers)
+    i=0
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((host2, port))
         s.listen(1)
         s.setblocking(False)
         while running:
+            item=queue.get()
+            i+=1
+            if item != None and i==20:
+                i=0
+                print(item)
+                envoyer(item)
             try:
                 conn, address = s.accept()
                 pool.apply_async(handle_connection, (conn,))
@@ -174,4 +222,20 @@ if __name__ == "__main__":
     pool.close()
     pool.join()
 
+def main_appli(queue):
+    app = QApplication(sys.argv)
+    Application = QMainWindow()
+    ui = Ui_Application()
+    ui.setupUi(Application,queue)
+    Application.show()
+    sys.exit(app.exec_())
 
+
+if __name__ == "__main__":
+    q=mp.Queue()
+    p1 = mp.Process(target=main_data, args=(q,))
+    p2 = mp.Process(target=main_appli, args=(q,))
+    p1.start()
+    p2.start()
+    p1.join()
+    p2.join()
