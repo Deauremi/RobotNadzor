@@ -106,7 +106,6 @@ class Joystick(QWidget):
         angle = round(normVector.angle())
 
         distance = round(min(currentDistance / self.__maxDistance, 1.0),2)
-        message="angle:",angle, "et distance:",distance
         angleMes = "angle:"
         message = angleMes.encode("utf-8") + angle.to_bytes(2, "big")
         return(message)
@@ -124,13 +123,10 @@ class Joystick(QWidget):
         if self.grabCenter:
             self.movingOffset = self._boundJoystick(event.pos())
             self.update()
-        envoyer(self.joystickDirection())
-
-class Direction(Enum):
-    Left = 0
-    Right = 1
-    Up = 2
-    Down = 3
+        try:
+            envoyer(self.joystickDirection())
+        except:
+            print("Pas de connection établi")
 
 def on_key_press(event):
     global running
@@ -177,8 +173,5 @@ if __name__ == "__main__":
                 pass
     pool.close()
     pool.join()
-
-
-
 
 
