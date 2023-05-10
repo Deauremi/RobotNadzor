@@ -9,7 +9,7 @@ BUFF_SIZE = 65536
 server_socket = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 server_socket.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,BUFF_SIZE)
 host_name = socket.gethostname()
-host_ip = '192.168.135.21'#  socket.gethostbyname(host_name)
+host_ip = '192.168.27.21'#  socket.gethostbyname(host_name)
 print(host_ip)
 port = 9999
 socket_address = (host_ip,port)
@@ -33,11 +33,4 @@ while True:
 		if key == ord('q'):
 			server_socket.close()
 			break
-		if cnt == frames_to_count:
-			try:
-				fps = round(frames_to_count/(time.time()-st))
-				st=time.time()
-				cnt=0
-			except:
-				pass
 		cnt+=1

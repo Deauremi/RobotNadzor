@@ -6,7 +6,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import  QWidget, QLabel, QApplication
 from PyQt5.QtGui import QImage, QPixmap
 import sys
-import socket,multiproccesing
+import socket
 import keyboard
 import sys
 import select
@@ -15,8 +15,8 @@ from enum import Enum
 import multiprocessing as mp
 import cv2
 
-host="192.168.135.122"
-host2 = '192.168.135.21'
+host="192.168.27.122"
+host2 = '192.168.27.21'
 port = 8040
 nb_workers = 1
 timeout_seconds = 15
@@ -137,8 +137,6 @@ class Joystick(QWidget):
         return limitLine.p2()
 
     def joystickDirection(self):
-        if not self.grabCenter:
-            return 0
         normVector = QLineF(self._center(), self.movingOffset)
         currentDistance = normVector.length()
         angle = round(normVector.angle())
@@ -149,8 +147,10 @@ class Joystick(QWidget):
             direction="q"
         elif 225 <= angle < 315:
             direction="s"
-        else :
+        elif 0<=angle<45 or 315<= angle < 360 :
             direction="d"
+        else:
+            direction="s"
         #distance = round(min(currentDistance / self.__maxDistance, 1.0),2)
         #angleMes = "angle:"
         message = direction.encode("utf-8")
@@ -188,14 +188,15 @@ def handle_connection(conn):
         buff = conn.recv(512)
         if buff:
             message = buff.decode('utf-8')
-            print(message)
 
 def envoyer(message):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_envoie:
         try :
+            print(message)
             s_envoie.connect((host, port))
             s_envoie.send(message)
         except socket.error:
+            print("Erreur lors de l'envoie du message")
             pass
 
 
@@ -212,7 +213,6 @@ def main_data(queue):
             i+=1
             if item != None and i==20:
                 i=0
-                print(item)
                 envoyer(item)
             try:
                 conn, address = s.accept()

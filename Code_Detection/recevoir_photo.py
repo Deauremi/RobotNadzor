@@ -2,7 +2,7 @@ import socket
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-sock.bind(('192.168.135.223', 8888))
+sock.bind(('192.168.27.21', 8888))
 
 def recevoirImage():
     while True:

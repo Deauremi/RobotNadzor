@@ -1,6 +1,3 @@
-import pip
-pip.main(["install", "pyserial"])
-pip.main(["install", "keyboard"])
 
 import serial
 import socket
@@ -11,9 +8,8 @@ import socket, multiprocessing
 import sys
 import select
 
-
-host="192.168.1.18"
-host2 = '192.168.1.10'
+host="192.168.1.22"
+host2 = '192.168.1.18'
 port = 8040
 nb_workers = 1
 timeout_seconds = 15
@@ -38,12 +34,13 @@ def envoit_droite(ser) :
     print("j'ai appuyee sur d")
     receive = ser.readline()
     print(receive.decode('ascii'))
-    
+   
 def envoit_gauche(ser) :
     ser.write(b"q")
     print("j'ai appuyee sur q")
     receive = ser.readline()
     print(receive.decode('ascii'))
+
 
 def on_key_press(event):
     global running
@@ -54,7 +51,9 @@ def on_key_press(event):
             time.sleep(1)
             sys.exit()
 
+
 keyboard.on_press(on_key_press)
+
 
 def handle_connection(conn,q):
     with conn:
@@ -62,7 +61,6 @@ def handle_connection(conn,q):
         buff = conn.recv(512)
         if buff:
             message = buff.decode('utf-8')
-            print(message)
             q.put(message)
 
 
@@ -84,30 +82,38 @@ def main_uart(queue):
             envoit_droite(ser)
     ser.close()
 
+
 def main_server(queue):
     pool = multiprocessing.Pool(nb_workers)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((host, port))
         s.listen(1)
+        s.setblocking(False)
         while running:
             ready_to_read, _, _ = select.select([s], [], [])
-
             if not ready_to_read:
                 # No connection received within timeout period, exit the loop
                 print("Pas de connection reçu dutant la période de timeout")
                 break
-                
-            conn, address = s.accept()
-            pool.apply_async(handle_connection, (conn,queue,))
+            try:
+                conn, address = s.accept()
+                pool.apply_async(handle_connection, (conn,queue,))
+            except socket.error:
+                print("error")  
+                pass
+        pool.terminate()
     pool.close()
     pool.join()
 
+
 if __name__ == '__main__':
-    q=mp.Queue()
+    manager=mp.Manager()
+    q=manager.Queue()
     p1 = mp.Process(target=main_server, args=(q,))
     p2 = mp.Process(target=main_uart, args=(q,))
     p1.start()
     p2.start()
     p1.join()
     p2.join()
+
