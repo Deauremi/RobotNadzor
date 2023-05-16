@@ -9,14 +9,17 @@ import sys
 import socket
 import keyboard
 import sys
-import select
 import time
 from enum import Enum
 import multiprocessing as mp
 import cv2
+import base64
+import numpy as np
 
-host="192.168.27.122"
-host2 = '192.168.27.21'
+
+BUFF_SIZE = 65536
+host_raspberry="192.168.113.122"
+host_application = '192.168.113.21'
 port = 8040
 nb_workers = 1
 timeout_seconds = 15
@@ -27,7 +30,7 @@ class Ui_Application(QWidget):
     def setImage(self, pixmap):
         self.video.setPixmap(pixmap)
 
-    def setupUi(self, Application,queue):
+    def setupUi(self, Application,queue,queue2):
         super().__init__()
         Application.setObjectName("Application")
         Application.resize(1200, 775)
@@ -51,7 +54,7 @@ class Ui_Application(QWidget):
         self.video = QLabel(self.groupBox_3)
         self.video.setGeometry(QtCore.QRect(20, 20, 640, 480))
         self.video.resize(640, 480)
-        th = Thread(self)
+        th = Thread(self,queue2)
         th.changePixmap.connect(self.setImage)
         th.start()
 
@@ -92,18 +95,22 @@ class Ui_Application(QWidget):
 class Thread(QThread):
     changePixmap = pyqtSignal(QPixmap)
 
+    def __init__(self, parent=None,queue=None):
+        QThread.__init__(self, parent=parent)
+        self.queue=queue
+
     def run(self):
-        cap = cv2.VideoCapture(0)
+        #cp=cv2.VideoCapture(0)
         while True:
-            ret, frame = cap.read()
-            if ret:
-                rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h, w, ch = rgbImage.shape
-                bytesPerLine = ch * w
-                qImg = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
-                pixmap = QPixmap.fromImage(qImg)
-                scaled_pixmap = pixmap.scaled(640, 480, Qt.KeepAspectRatio)
-                self.changePixmap.emit(scaled_pixmap)
+            #ret, frame = cp.read()
+            frame=self.queue.get()
+            rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgbImage.shape
+            bytesPerLine = ch * w
+            qImg = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qImg)
+            scaled_pixmap = pixmap.scaled(640, 480, Qt.KeepAspectRatio)
+            self.changePixmap.emit(scaled_pixmap)
 
 
 class Joystick(QWidget):
@@ -193,7 +200,7 @@ def envoyer(message):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_envoie:
         try :
             print(message)
-            s_envoie.connect((host, port))
+            s_envoie.connect((host_raspberry, port))
             s_envoie.send(message)
         except socket.error:
             print("Erreur lors de l'envoie du message")
@@ -205,7 +212,7 @@ def main_data(queue):
     i=0
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((host2, port))
+        s.bind((host_application, port))
         s.listen(1)
         s.setblocking(False)
         while running:
@@ -222,20 +229,54 @@ def main_data(queue):
     pool.close()
     pool.join()
 
-def main_appli(queue):
+def main_appli(queue,queue2):
     app = QApplication(sys.argv)
     Application = QMainWindow()
     ui = Ui_Application()
-    ui.setupUi(Application,queue)
+    ui.setupUi(Application,queue,queue2)
     Application.show()
     sys.exit(app.exec_())
 
+def main_video(queue):
+    client_socket = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+    client_socket.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,BUFF_SIZE)
+    print(host_raspberry)
+    port_video = 8041
+    message = b'Hello'
+    client_socket.sendto(message,(host_raspberry,port_video))
+    fps,st,frames_to_count,cnt = (0,0,20,0)
+    while True:
+        packet,_ = client_socket.recvfrom(BUFF_SIZE)
+
+        npdata = np.frombuffer(packet, dtype=np.uint8)
+        
+        #frame = cv2.imdecode(npdata,1)
+        frame = cv2.putText(npdata,'FPS: '+str(fps),(10,40),cv2.FONT_HERSHEY_SIMPLEX,0.7,(0,0,255),2)
+        #cv2.imshow("RECEIVING VIDEO",frame)
+        queue.put(frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            client_socket.close()
+            break
+        if cnt == frames_to_count:
+            try:
+                fps = round(frames_to_count/(time.time()-st))
+                st=time.time()
+                cnt=0
+            except:
+                pass
+        cnt+=1
 
 if __name__ == "__main__":
+    manager=mp.Manager()
     q=mp.Queue()
+    q2=manager.Queue()
     p1 = mp.Process(target=main_data, args=(q,))
-    p2 = mp.Process(target=main_appli, args=(q,))
+    p2 = mp.Process(target=main_appli, args=(q,q2,))
+    p3 = mp.Process(target=main_video, args=(q2,))
     p1.start()
     p2.start()
+    p3.start()
     p1.join()
     p2.join()
+    p3.join()
