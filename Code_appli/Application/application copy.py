@@ -18,8 +18,8 @@ import numpy as np
 
 
 BUFF_SIZE = 65536
-host_raspberry="192.168.113.122"
-host_application = '192.168.113.21'
+host_raspberry="192.168.1.10"
+host_application = '192.168.1.18'
 port = 8040
 nb_workers = 1
 timeout_seconds = 15
@@ -32,6 +32,7 @@ class Ui_Application(QWidget):
 
     def setupUi(self, Application,queue,queue2):
         super().__init__()
+        self.queue=queue
         Application.setObjectName("Application")
         Application.resize(1200, 775)
         self.ApplicationRobot = QWidget(Application)
@@ -70,6 +71,13 @@ class Ui_Application(QWidget):
         self.comboBox.setObjectName("comboBox")
         self.comboBox.addItem("")
         self.comboBox.addItem("")
+        self.comboBox.addItem("")
+        self.comboBox.addItem("")
+        self.comboBox.addItem("")
+        self.pushButton = QPushButton(self.groupBox_2)
+        self.pushButton.setGeometry(QtCore.QRect(20, 100, 191, 22))
+        self.pushButton.setObjectName("pushButton")
+        self.pushButton.clicked.connect(self.pushButton_clicked)
         self.joystick = Joystick(queue,self.groupBox_2)
         self.joystick.setGeometry(QtCore.QRect(20, 330, 191, 51))
        
@@ -89,8 +97,17 @@ class Ui_Application(QWidget):
         self.groupBox_3.setTitle(_translate("Application", "Vidéo"))
         self.groupBox_2.setTitle(_translate("Application", "Contrôle du robot "))
         self.checkBox.setText(_translate("Application", "Le robot continue d\'avancer"))
-        self.comboBox.setItemText(0, _translate("Application", "Commande1"))
-        self.comboBox.setItemText(1, _translate("Application", "Commande2"))
+        self.comboBox.setItemText(0, _translate("Application", "0"))
+        self.comboBox.setItemText(1, _translate("Application", "45"))
+        self.comboBox.setItemText(2, _translate("Application", "90"))
+        self.comboBox.setItemText(3, _translate("Application", "135"))
+        self.comboBox.setItemText(4, _translate("Application", "180"))
+        self.pushButton.setText(_translate("Application", "Tourner la tête du robot"))
+    
+    def pushButton_clicked(self):
+        message=self.comboBox.currentText() 
+        self.queue.put(message)
+
 
 class Thread(QThread):
     changePixmap = pyqtSignal(QPixmap)
@@ -160,7 +177,7 @@ class Joystick(QWidget):
             direction="s"
         #distance = round(min(currentDistance / self.__maxDistance, 1.0),2)
         #angleMes = "angle:"
-        message = direction.encode("utf-8")
+        message = direction
         return(message)
 
     def mousePressEvent(self, ev):
@@ -199,6 +216,7 @@ def handle_connection(conn):
 def envoyer(message):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_envoie:
         try :
+            message = str(message).encode('utf-8')
             print(message)
             s_envoie.connect((host_raspberry, port))
             s_envoie.send(message)
@@ -206,6 +224,29 @@ def envoyer(message):
             print("Erreur lors de l'envoie du message")
             pass
 
+def recevoirImage(sock):
+    while True:
+        sock.listen(5)
+        client, address = sock.accept()
+        print("connexion reçue")
+        # on ouvre un fichier (s'il existe déjà, ça l'écrase) pour y stocker tous les octets de l'image
+        # les 8 premiers octets indiquent la taille de l'image
+        with open("image_recue.jpg", 'wb') as img:
+            taille = int.from_bytes(client.recv(8), byteorder='big')
+            print("image taille : " + str(taille))
+            acc = 0
+            while acc < taille:
+                donnee = client.recv(4096)
+                img.write(donnee)
+                acc += len(donnee)
+        print("image received")
+
+def main_photo(queue):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host_application, port+2))
+    recevoirImage(sock)
+    sock.close()
 
 def main_data(queue):
     pool = mp.Pool(nb_workers)
@@ -220,6 +261,8 @@ def main_data(queue):
             i+=1
             if item != None and i==20:
                 i=0
+                envoyer(item)
+            elif item in ["0","45","90","135","180"]:
                 envoyer(item)
             try:
                 conn, address = s.accept()
@@ -241,7 +284,7 @@ def main_video(queue):
     client_socket = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
     client_socket.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,BUFF_SIZE)
     print(host_raspberry)
-    port_video = 8041
+    port_video = port+1
     message = b'Hello'
     client_socket.sendto(message,(host_raspberry,port_video))
     fps,st,frames_to_count,cnt = (0,0,20,0)
@@ -274,9 +317,12 @@ if __name__ == "__main__":
     p1 = mp.Process(target=main_data, args=(q,))
     p2 = mp.Process(target=main_appli, args=(q,q2,))
     p3 = mp.Process(target=main_video, args=(q2,))
+    p4 = mp.Process(target=main_photo, args=(q,))
     p1.start()
     p2.start()
     p3.start()
+    p4.start()
     p1.join()
     p2.join()
     p3.join()
+    p4.join()
